@@ -1,0 +1,93 @@
+### Libraries ###
+library(tidyverse)
+library(reshape2)
+### Load Cleaned Data ###
+setwd("~/STAT321/Project")
+songs = read.csv("most streamed songs data perctange of total streams1.csv") # Top 1000 Streamed Songs
+artists = read.csv("artists _cleaned 2.csv") # Top 1000 Streamed Artists
+### Bar Plots ###
+# Top 10 Songs
+top_10_songs = songs %>%. # Create df with only top 10 most streamed songs
+arrange(desc(Streams)) %>%
+head(10) %>%
+mutate(Streams_bil = Streams/1000000000) # Scale by a billion for better visualization
+ggplot(top_10_songs, aes(x=reorder(song_title, -Streams), y = Streams_bil)) + # Order by no. streams (desc)
+geom_bar(stat = "identity", fill = "aquamarine2", color ="black") +
+labs(title = "Top 10 Most Streamed Songs on Spotify",
+x = "Song Name", y = "Number of Streams (millions)") + theme_minimal() +
+theme(
+axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+axis.text.y = element_text(size = 10)) # Increase tick label size for better readability
+# Top 10 Artists Overall
+top_10_artists = artists %>% # Create df with only top 10 most streamed artists
+arrange(desc(Streams)) %>%
+head(10) %>%
+mutate(Streams_bil = Streams/1000000000, Daily_bil = Daily/1000000000) %>% # scale by a billion
+mutate(has_top_10_song = ifelse(Artist %in% top_10_songs[,2], "Yes", "No")) # add column that
+indicates if the artist also has a song in the top 10
+ggplot(top_10_artists, aes(x = reorder(Artist, -Streams), y = Streams_bil,
+fill = has_top_10_song)) +
+geom_bar(stat = "identity") + # Create bar chart, ordered by number of streams (desc) and filled to
+indicate Y/N to having a top 10 song
+scale_fill_manual(values = c("Yes" = "royalblue4", "No" = "dodgerblue")) +
+theme_minimal() +
+theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+axis.text.y = element_text(size = 10)) +
+labs(title = "Top 10 Artists", x = "Artist", fill =
+"Has a Top 10 Song", y = "Number of Streams (millions)")
+# Top 10 Daily Streamed Artists
+top_10_per_day = artists %>% # Create df of top 10 artists based on streams per day
+arrange(desc(Daily)) %>%
+head(10) %>%
+mutate(Daily_mil = Daily/1000000) # scale by a million
+ggplot(top_10_per_day, aes(x = reorder(Artist, -Daily), y = Daily_mil)) + # Create bar chart, ordered by
+no. streams (desc)
+geom_bar(stat = "identity", fill = "orange", color = "black") + theme_minimal() +
+labs(title = "Top 10 Most Streamed Artists Per Day on Spotify",
+x = "Artist", y = "Number of Daily Streams (millions)") +
+theme(
+axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+axis.text.y = element_text(size = 10)
+)
+# Top 10 Artist Streams Breakdown
+top_10_artists_long = top_10_artists %>%
+pivot_longer(cols = c(As.lead, Solo, As.feature), # Convert columns for artist roles into a long format
+names_to = "artist_type", # Create a new column 'artist_type' to hold the roles
+values_to = "no_streams") %>% # Store the corresponding stream counts in no_streams
+mutate(no_streams_bil = no_streams/1000) # scale to be in billions (og is in millions)
+ggplot(top_10_artists_long,
+aes(x = reorder(Artist, -no_streams_bil), # Create bar chart, ordered by no. streams (desc)
+y = no_streams, fill = artist_type)) + # Fill no. streams with a breakdown of the streams by artist
+type
+geom_bar(stat = "identity") +
+scale_fill_manual(values = c("As.feature" = "lightgreen","As.lead"= "forestgreen","Solo" = "darkgreen"),
+labels = c("As.feature" = "Featuring Artist", "As.lead" = "Lead Artist",
+"Solo" = "Solo Artist")) +
+theme_minimal() +
+labs(title = "Top 10 Artists: Comparison of Streams as Lead, Solo, and Featured Artist",
+x = "Artist", y = "Number of Streams (millions)", fill = "Song Role") +
+theme(
+axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+axis.text.y = element_text(size = 10))
+### Heatmap ###
+# Correlation of artist categories
+artist_cor = artists %>%
+rename("as Feature" = As.feature, "as Lead" = As.lead, "Total" = Streams,
+"Daily" = Daily, "as Solo" = Solo) %>% # Rename categories for better interpretation
+select(-Artist) %>% # Remove artist column, not needed
+cor() %>% # Create correlation matrix
+melt() # Convert the correlation matrix to long format for plotting (DataCamp,
+2025)
+ggplot(artist_cor, aes(x = Var1, y =Var2, fill = value)) + # Create heatmap of artist categories
+correlations
+geom_tile(color = "black") +
+scale_fill_gradient2(low = "navy", high = "floralwhite", mid = "deeppink",
+midpoint = 0.6, # Shift midpoint as there are more high
+correlations
+limit = c(0.2, 1), # Adjust to fit the range of correlations
+name = "Correlation") +
+theme_minimal() + labs(title = "Correlation Heatmap of Streaming Categories",
+x = "Streaming Category", y = "Streaming Category") +
+theme(
+axis.text.x = element_text(size = 10.5),
+axis.text.y = element_text(size = 10.5))
