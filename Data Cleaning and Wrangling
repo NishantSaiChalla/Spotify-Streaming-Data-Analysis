@@ -1,0 +1,77 @@
+CREATE DATABASE FINAL_PROJECT;
+USE FINAL_PROJECT;
+ALTER TABLE spotify most streamed RENAME TO spotify_most_streamed;
+ALTER TABLE spotify_most_streamed
+ADD artist VARCHAR(255),
+ADD song_title VARCHAR(255);
+SET SQL_SAFE_UPDATES = 0;
+UPDATE spotify_most_streamed
+SET artist = SUBSTRING_INDEX(Artist and Title, ' - ', 1),
+song_title = SUBSTRING_INDEX(Artist and Title, ' - ', -1)
+WHERE Artist and Title IS NOT NULL;
+SET SQL_SAFE_UPDATES = 1; -- Re-enable Safe Mode after updating
+SET SQL_SAFE_UPDATES = 0;
+UPDATE spotify_most_streamed
+SET Streams = REPLACE(Streams, ',', '' ),
+Daily = REPLACE(Daily, ',', '');
+UPDATE spotify_most_streamed
+SET Streams = 0
+WHERE Streams IS NULL OR TRIM(Streams) = '';
+UPDATE spotify_most_streamed
+SET Daily = 0
+WHERE Daily IS NULL OR TRIM(Daily) = '';
+ALTER TABLE spotify_most_streamed
+MODIFY COLUMN Streams BIGINT,
+MODIFY COLUMN Daily BIGINT;
+SET SQL_SAFE_UPDATES = 1;
+ALTER TABLE spotify_most_streamed
+DROP COLUMN Artist and Title
+SELECT
+song_title,
+artist,
+Streams,
+ROUND((Streams * 100.0) / (SELECT SUM(Streams) FROM spotify_most_streamed), 2) AS
+percentage_of_total_streams FROM spotify_most_streamed
+ORDER BY Streams DESC;
+SET SQL_SAFE_UPDATES = 0;
+ALTER TABLE artists1
+MODIFY COLUMN Daily BIGINT,
+MODIFY COLUMN Streams BIGINT;
+UPDATE artists1
+SET
+Daily = Daily * 1000000,
+Streams = Streams * 1000000;
+UPDATE artists1
+SET Streams = REPLACE(Streams, ',', ''),
+Daily = REPLACE(Daily, ',', ''),
+As lead = REPLACE(As lead, ',', ''),
+Solo = REPLACE(Solo, ',', ''),
+As feature = REPLACE(As feature, ',', '');
+UPDATE artists1
+SET Streams = 0
+WHERE Streams IS NULL OR TRIM(Streams) = '';
+UPDATE artists1
+SET Daily = 0
+WHERE Streams IS NULL OR TRIM(Daily) = '';
+UPDATE artists1
+SET As lead = 0
+WHERE Streams IS NULL OR TRIM(As lead) = '';
+UPDATE artists1
+SET Solo = 0
+WHERE Streams IS NULL OR TRIM(Solo) = '';
+UPDATE artists1
+SET As feature=0
+WHERE Streams IS NULL OR TRIM( As feature) = '';
+ALTER TABLE artists1
+MODIFY COLUMN Streams BIGINT DEFAULT 0,
+MODIFY COLUMN Daily DECIMAL(10,3) DEFAULT 0,
+MODIFY COLUMN As lead DECIMAL(10,3) DEFAULT 0,
+MODIFY COLUMN Solo DECIMAL(10,3) DEFAULT 0,
+MODIFY COLUMN As feature DECIMAL(10,3) DEFAULT 0;
+SELECT
+Artist,
+SUM(Streams) AS total_streams,
+ROUND((SUM(Streams) * 100.0) / (SELECT SUM(Streams) FROM artists1), 2) AS
+percentage_of_total_streams
+FROM artists1
+GROUP BY Artist;
