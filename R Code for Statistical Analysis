@@ -1,0 +1,194 @@
+
+library(tidyverse)
+library(psych)
+library(broom)
+library(ggplot2)
+library(dplyr)
+library(pROC)
+library(factoextra)
+library(cluster)
+
+
+artists_cleaned <- read_csv("artists _cleaned 2.csv") 
+artists_cleaned_percentage <- read_csv("artists _cleaned percentage_of_total_streams2.csv")
+streamed_songs <- read_csv("most streamed songs data perctange of total streams1.csv")
+
+#descriptive analysis
+#1. Inspect Data Structure & Summary Statistics
+# Artists Cleaned
+summary(artists_cleaned)
+describe(artists_cleaned)
+# Artists Cleaned Percentage
+summary(artists_cleaned_percentage)
+describe(artists_cleaned_percentage)
+# Streamed Songs
+summary(streamed_songs)
+describe(streamed_songs)
+#2. Visualizations
+# Set up plotting area for artists_cleaned (2x2 grid)
+par(mfrow = c(2, 2))
+hist(artists_cleaned$total_streams, breaks = 30, col = "skyblue",
+main = "Distribution of Total Streams (Artists)", xlab = "Total Streams")
+hist(artists_cleaned$Daily, breaks = 30, col = "lightgreen",
+main = "Distribution of Daily Streams (Artists)", xlab = "Daily Streams")
+boxplot(artists_cleaned$`As lead`, main = "Boxplot: As lead (Artists)", col = "orange")
+boxplot(artists_cleaned$Solo, main = "Boxplot: Solo (Artists)", col = "purple")
+# Plot for artists_cleaned_percentage (1x2 grid)
+par(mfrow = c(1, 2))
+hist(artists_cleaned_percentage$total_streams, breaks = 30, col = "skyblue",
+main = "Total Streams (Artists %)", xlab = "Total Streams")
+hist(artists_cleaned_percentage$percentage_of_total_streams, breaks = 30, col = "lightgreen",
+main = "Percentage of Total Streams", xlab = "Percentage")
+
+# As the data is heavily skewed, we will transform it
+
+#1. Appling Transformations
+# For artists_cleaned:
+# new log-transformed columns for heavy-skewed variables.
+artists_cleaned <- artists_cleaned %>%
+mutate(
+log_total_streams = log(total_streams),
+log_Daily = log(Daily + 1), # Adding 1 to avoid log(0)
+log_As_lead = log(`As lead` + 1),
+log_Solo = log(Solo + 1),
+log_As_feature = log(`As feature` + 1)
+)
+# For artists_cleaned_percentage:
+# Since percentage_of_total_streams is in percentage format (e.g., 0.1 for 0.1%), convert to proportion.
+artists_cleaned_percentage <- artists_cleaned_percentage %>%
+mutate(
+log_total_streams = log(total_streams),
+arcsine_perc = asin(sqrt(percentage_of_total_streams / 100))
+)
+# For streamed_songs:
+# Transform Streams (with offset) and apply arcsine square root to
+#percentage_of_total_streams after conversion.
+streamed_songs <- streamed_songs %>%
+mutate(
+log_Streams = log(Streams + 1),
+arcsine_perc = asin(sqrt(percentage_of_total_streams / 100))
+)
+
+#data after transformation
+#Histogram for log_total_streams
+ggplot(artists_cleaned, aes(x = log_total_streams)) + geom_histogram(bins = 30, fill =
+"skyblue", color = "black") + labs(title = "Histogram of Log Total Streams (Artists)", x = "Log
+Total Streams", y = "Frequency")
+#Histogram for log_Streams (Songs)
+ggplot(streamed_songs, aes(x = log_Streams)) + geom_histogram(bins = 30, fill = "orchid",
+color = "black") + labs(title = "Histogram of Log Streams (Songs)", x = "Log Streams", y =
+"Frequency")
+
+# Linear regression
+# Use the log-transformed Streams from streamed_songs to get each artist's top song
+top_song <- streamed_songs %>%
+group_by(artist) %>%
+summarise(top_log_Streams = max(log_Streams, na.rm = TRUE))
+# Joining using the artist name
+
+artist_model_data <- artists_cleaned %>%
+left_join(top_song, by = c("Artist" = "artist"))
+# Model: log_total_streams (dependent) as a function of top_log_Streams (independent)
+lm_model <- lm(log_total_streams ~ top_log_Streams, data = artist_model_data)
+summary(lm_model)
+# Diagnostic Plots for Model Adequacy
+par(mfrow = c(2, 2))
+plot(lm_model)
+# Outlier Detection using Cook's Distance
+cooksd <- cooks.distance(lm_model)
+influential <- which(cooksd > (4/length(cooksd)))
+cat("Influential observations based on Cook's distance:\n", influential, "\n")
+
+# Logistic regression
+artists_cleaned <- artists_cleaned %>%
+mutate(
+log_total_streams = log(total_streams),
+log_Daily = log(Daily + 1)
+)
+streamed_songs <- streamed_songs %>%
+arrange(desc(Streams)) %>%
+mutate(
+rank = row_number(),
+top10 = ifelse(rank <= 10, 1, 0)
+)
+song_model_data <- streamed_songs %>%
+left_join(artists_cleaned %>% select(Artist, log_Daily, log_total_streams),
+by = c("artist" = "Artist")) %>%
+left_join(artists_cleaned_percentage %>% select(Artist, arcsine_perc),
+by = c("artist" = "Artist"))
+song_model_data <- song_model_data %>%
+rename(arcsine_perc = arcsine_perc.y)
+song_model_data_clean <- song_model_data %>%
+filter(!is.na(log_Daily) & !is.na(log_total_streams) & !is.na(arcsine_perc))
+# Logistic Regression Model
+logit_model <- glm(top10 ~ log_Daily + log_total_streams + arcsine_perc,
+data = song_model_data_clean, family = binomial)
+summary(logit_model)
+# Diagnostic Plots for Model Adequacy
+par(mfrow = c(2, 2))
+plot(logit_model)
+# Outlier Detection using Cook's Distance
+cooksd <- cooks.distance(logit_model)
+influential <- which(cooksd > (4 / length(cooksd)))
+cat("Influential observations (Cook's Distance):", influential, "\n")
+
+# Model Evaluation: ROC Curve and AUC
+roc_obj <- roc(song_model_data_clean$top10, fitted(logit_model))
+plot(roc_obj, main = "ROC Curve for Top 10 Song Prediction")
+auc_val <- auc(roc_obj)
+cat("AUC:", auc_val, "\n")
+
+#K-means cluster
+artists_cluster <- artists_cleaned %>%
+mutate(
+#raw proportions
+prop_lead = `As lead` / total_streams,
+prop_solo = Solo / total_streams,
+prop_feature = `As feature` / total_streams,
+arcsine_prop_lead = asin(sqrt(prop_lead)),
+arcsine_prop_solo = asin(sqrt(prop_solo)),
+arcsine_prop_feature = asin(sqrt(prop_feature))
+) %>%
+# Selecting the transformed streams and transformed proportions
+select(log_Daily, log_total_streams, arcsine_prop_lead, arcsine_prop_solo,
+arcsine_prop_feature)
+# Scale the Data for Clustering
+artists_cluster_scaled <- scale(artists_cluster)
+# Determine Optimal Number of Clusters (Elbow Method)
+wss <- sapply(1:10, function(k) {
+kmeans(artists_cluster_scaled, centers = k, nstart = 25)$tot.withinss
+})
+plot(1:10, wss, type = "b", pch = 19, frame = FALSE,
+xlab = "Number of Clusters (K)",
+ylab = "Total Within-Cluster Sum of Squares",
+main = "Elbow Method for Optimal K")
+#4. Perform K-means Clustering
+set.seed(123)
+k <- 3
+kmeans_result <- kmeans(artists_cluster_scaled, centers = k, nstart = 25)
+cluster_assignments <- kmeans_result$cluster
+artists_cleaned$cluster <- cluster_assignments
+# Model Adequacy: Silhouette Analysis
+sil <- silhouette(cluster_assignments, dist(artists_cluster_scaled))
+fviz_silhouette(sil) +
+labs(title = "Silhouette Plot for K-means Clustering")
+avg_sil_width <- mean(sil[, "sil_width"])
+cat("Average Silhouette Width:", avg_sil_width, "\n")
+# Outlier Detection
+outliers <- which(sil[, "sil_width"] < 0.25)
+cat("Potential outlier observations (silhouette width < 0.25):", outliers, "\n")
+
+# Cluster Visualization
+
+pca_res <- prcomp(artists_cluster_scaled, center = TRUE, scale. = TRUE)
+pca_df <- data.frame(PC1 = pca_res$x[,1],
+PC2 = pca_res$x[,2],
+cluster = factor(cluster_assignments))
+ggplot(pca_df, aes(x = PC1, y = PC2, color = cluster)) +
+geom_point(size = 2) +
+labs(title = "K-means Clustering (PCA Projection)",
+x = "Principal Component 1", y = "Principal Component 2") +
+theme_minimal()
+
+
+
